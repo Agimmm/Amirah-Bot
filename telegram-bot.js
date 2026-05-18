@@ -451,11 +451,18 @@ bot.on('message', async (msg) => {
     // AI putuskan jenis aksi
     const decision = await decideAction(userMsg, session.sheets);
 
-    bot.sendMessage(chatId, '🔍 Mengambil data dari: ' + JSON.stringify(decision));
-
     if (decision.action === 'skip') {
-      const answer = await callAI('Kamu asisten data analyst. Jawab dalam bahasa Indonesia.', [{ role: 'user', content: userMsg }]);
-      return bot.sendMessage(chatId, answer);
+      // Cek apakah pertanyaan butuh data
+      const dataKeywords = ['data','tampil','berapa','siapa','total','jumlah','cari','list','rekap','report','sales','order','pelanggan','terbanyak','terbaru','tertinggi','terendah','rata','penjualan','tabel','sheet','tab'];
+      const needsData = dataKeywords.some(k => userMsg.toLowerCase().includes(k));
+      if (needsData && session.sheets.length > 0) {
+        // Paksa ambil dari semua sheet
+        decision.action = 'fetch';
+        decision.targets = session.sheets.map(s => ({ id: s.id, name: s.name, tab: s.tabs[0] }));
+      } else {
+        const answer = await callAI('Kamu asisten data analyst. Jawab dalam bahasa Indonesia.', [{ role: 'user', content: userMsg }]);
+        return bot.sendMessage(chatId, answer);
+      }
     }
 
     bot.sendChatAction(chatId, 'typing');
