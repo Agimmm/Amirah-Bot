@@ -267,7 +267,7 @@ async function callGroq(system, messages, maxTokens = 800) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
+      'Authorization': `Bearer ${CEREBRAS_API_KEY}`,
       'HTTP-Referer': 'https://sheets-ai-bot.app',
       'X-Title': 'Sheets AI Bot'
     },
