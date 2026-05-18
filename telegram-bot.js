@@ -196,7 +196,7 @@ Jika hanya MENULIS/INPUT data baru tanpa baca dulu:
 Jika tidak perlu akses sheet sama sekali:
 {"action":"skip"}`;
 
-  const text = await callGroq(system, [{ role: 'user', content: userMsg }], 500);
+  const text = await callcerebras(system, [{ role: 'user', content: userMsg }], 500);
   try {
     const trimmed = text.trim();
     const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
@@ -248,7 +248,7 @@ Tugas: Hitung/proses sesuai permintaan user, lalu balas HANYA dengan JSON berisi
 
 Pastikan rows berisi array of arrays. Baris pertama adalah header (jika perlu), sisanya adalah data.`;
 
-  const text = await callGroq(system, [{ role: 'user', content: userMsg }], 1000);
+  const text = await callcerebras(system, [{ role: 'user', content: userMsg }], 1000);
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) return JSON.parse(jsonMatch[0]);
@@ -256,8 +256,8 @@ Pastikan rows berisi array of arrays. Baris pertama adalah header (jika perlu), 
   return null;
 }
 
-// ── Groq AI ────────────────────────────────────────────────────────────────
-async function callGroq(system, messages, maxTokens = 800) {
+// ── cerebras AI ────────────────────────────────────────────────────────────────
+async function callcerebras(system, messages, maxTokens = 800) {
   const fetch = (await import('node-fetch')).default;
   const allMessages = [];
   if (system) allMessages.push({ role: 'system', content: system });
@@ -306,7 +306,7 @@ Jika perlu data, balas HANYA JSON (tanpa teks lain):
 Boleh lebih dari 1 target jika perlu.
 Jika tidak perlu data sheet, balas HANYA: {"action":"skip"}`;
 
-  const text = await callGroq(system, [{ role: 'user', content: userMsg }], 400);
+  const text = await callcerebras(system, [{ role: 'user', content: userMsg }], 400);
   try {
     const trimmed = text.trim();
     if (trimmed.startsWith('{')) return JSON.parse(trimmed);
@@ -442,7 +442,7 @@ bot.on('message', async (msg) => {
 
   try {
     if (!session.sheets.length) {
-      const answer = await callGroq('Kamu asisten Google Sheets. Jawab dalam bahasa Indonesia. Minta user set folder dulu dengan /folder', [{ role: 'user', content: userMsg }]);
+      const answer = await callcerebras('Kamu asisten Google Sheets. Jawab dalam bahasa Indonesia. Minta user set folder dulu dengan /folder', [{ role: 'user', content: userMsg }]);
       return bot.sendMessage(chatId, answer);
     }
 
@@ -452,7 +452,7 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId, '🔍 Mengambil data dari: ' + JSON.stringify(decision));
 
     if (decision.action === 'skip') {
-      const answer = await callGroq('Kamu asisten data analyst. Jawab dalam bahasa Indonesia.', [{ role: 'user', content: userMsg }]);
+      const answer = await callcerebras('Kamu asisten data analyst. Jawab dalam bahasa Indonesia.', [{ role: 'user', content: userMsg }]);
       return bot.sendMessage(chatId, answer);
     }
 
@@ -484,7 +484,7 @@ bot.on('message', async (msg) => {
       }
       if (!dataContext) return bot.sendMessage(chatId, '⚠️ Tidak bisa ambil data dari tab yang diminta.');
       const system = `Kamu asisten data analyst. Jawab berdasarkan data berikut dalam bahasa Indonesia. Jawab spesifik dan akurat sesuai data yang diberikan.\n\nDATA:\n${dataContext}`;
-      const answer = await callGroq(system, [{ role: 'user', content: userMsg }], 800);
+      const answer = await callcerebras(system, [{ role: 'user', content: userMsg }], 800);
       return bot.sendMessage(chatId, answer);
     }
 
