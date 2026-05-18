@@ -280,7 +280,9 @@ async function callAI(system, messages, maxTokens = 800) {
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-  return data.choices?.[0]?.message?.content || '';
+  const text = data.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('AI tidak memberikan respons. Coba lagi.');
+  return text;
 }
 
 // AI pilih: sheet mana + tab mana yang relevan
