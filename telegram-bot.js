@@ -1,4 +1,4 @@
-require('dotenv').config();
+try { require('dotenv').config(); } catch(e) {} // opsional, tidak wajib ada
 // telegram-bot.js — jalankan: node telegram-bot.js
 // npm install node-fetch node-telegram-bot-api googleapis
 
