@@ -272,7 +272,7 @@ async function callAI(system, messages, maxTokens = 800) {
       'X-Title': 'Sheets AI Bot'
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b',
+      model: 'llama3.1-8b',
       messages: allMessages,
       max_tokens: maxTokens,
       temperature: 0.7
