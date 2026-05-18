@@ -8,13 +8,13 @@ const fs = require('fs');
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
+const CEREBRAS_URL = 'https://api.cerebras.ai/v1/chat/completions';
 const SERVICE_ACCOUNT_FILE = './service-account.json';
 
 // ── Cek environment variables ─────────────────────────────────────────────
-if (!process.env.TELEGRAM_TOKEN || !process.env.GROQ_API_KEY) {
-  console.error('❌ TELEGRAM_TOKEN dan GROQ_API_KEY harus diset di .env!');
+if (!process.env.TELEGRAM_TOKEN || !process.env.CEREBRAS_API_KEY) {
+  console.error('❌ TELEGRAM_TOKEN dan CEREBRAS_API_KEY harus diset di .env!');
   process.exit(1);
 }
 
@@ -263,7 +263,7 @@ async function callGroq(system, messages, maxTokens = 800) {
   if (system) allMessages.push({ role: 'system', content: system });
   allMessages.push(...messages);
 
-  const res = await fetch(GROQ_URL, {
+  const res = await fetch(CEREBRAS_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -272,7 +272,7 @@ async function callGroq(system, messages, maxTokens = 800) {
       'X-Title': 'Sheets AI Bot'
     },
     body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
+      model: 'llama-3.3-70b',
       messages: allMessages,
       max_tokens: maxTokens,
       temperature: 0.7
