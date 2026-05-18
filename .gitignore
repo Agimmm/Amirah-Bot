@@ -1,0 +1,14 @@
+# Jangan push file-file ini ke GitHub!
+
+# Environment variables (berisi API keys)
+.env
+
+# Google Service Account credentials
+service-account.json
+
+# Node modules (terlalu besar, tidak perlu di-push)
+node_modules/
+
+# Log files
+*.log
+npm-debug.log*

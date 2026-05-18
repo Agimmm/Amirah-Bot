@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sheets AI</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a0a; --surface: #111111; --surface2: #1a1a1a;
+    --border: #2a2a2a; --border2: #333; --text: #f0f0f0; --muted: #666;
+    --accent: #00e5a0; --accent2: #0070f3; --danger: #e53e3e;
+    --font-head: 'Syne', sans-serif; --font-mono: 'DM Mono', monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-mono); min-height: 100vh; }
+  #root { min-height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  input, select, textarea {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--font-mono); font-size: 13px; padding: 10px 14px;
+    border-radius: 6px; outline: none; width: 100%; transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  button { cursor: pointer; font-family: var(--font-mono); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .fade-in { animation: fadeIn 0.3s ease forwards; }
+  .spinner { width: 16px; height: 16px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
+  .chat-bubble { animation: fadeIn 0.25s ease forwards; }
+  .typing-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin: 0 2px; animation: blink 1.2s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  table.data-table th { padding: 6px 10px; text-align: left; color: var(--accent); font-size: 11px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; }
+  table.data-table td { padding: 6px 10px; border-bottom: 1px solid var(--border2); color: var(--text); }
+  table.data-table tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const CLIENT_ID = '684655733953-5atkd9drm51624rvq1oipmf8o10djd1j.apps.googleusercontent.com';
+
+// ── Google API ─────────────────────────────────────────────────────────────
+async function gFetch(url, token) {
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+function extractFolderId(input) {
+  const m = input.match(/folders\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  if (/^[a-zA-Z0-9_-]{25,}$/.test(input.trim())) return input.trim();
+  return null;
+}
+
+async function listSheetsInFolder(folderId, token) {
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+    `'${folderId}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`
+  )}&fields=files(id,name,modifiedTime,webViewLink)&pageSize=50`;
+  const data = await gFetch(url, token);
+  return data.files || [];
+}
+
+async function getSheetTabs(spreadsheetId, token) {
+  const data = await gFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+    token
+  );
+  return (data.sheets || []).map(s => s.properties);
+}
+
+async function getSheetData(spreadsheetId, tabName, token) {
+  const data = await gFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tabName)}`,
+    token
+  );
+  return data.values || [];
+}
+
+async function appendRow(spreadsheetId, tabName, values, token) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tabName)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [values] })
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── OAuth ──────────────────────────────────────────────────────────────────
+function useOAuth(clientId) {
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const login = useCallback(() => {
+    setLoading(true);
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets');
+    const redirect = encodeURIComponent(window.location.origin + window.location.pathname);
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirect}&response_type=token&scope=${scope}`;
+  }, [clientId]);
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const t = hash.get('access_token');
+    if (t) { setToken(t); window.history.replaceState({}, '', window.location.pathname); }
+    setLoading(false);
+  }, []);
+  return { token, login, logout: () => setToken(null), loading };
+}
+
+// ── AI ─────────────────────────────────────────────────────────────────────
+async function callAI(systemPrompt, messages, maxTokens = 1000) {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: maxTokens, system: systemPrompt, messages })
+  });
+  const data = await res.json();
+  console.log('AI response:', JSON.stringify(data).slice(0, 300));
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  return data.content?.[0]?.text || '(no response)';
+}
+
+async function decideSheets(userMsg, sheets, chatHistory) {
+  const sheetList = sheets.map(s => `- "${s.name}" (id: ${s.id})`).join('\n');
+  const system = `Kamu asisten yang menentukan sheet mana yang perlu diambil datanya.
+
+Sheet tersedia:
+${sheetList}
+
+Jika perlu ambil data: balas HANYA JSON tanpa teks lain:
+{"action":"fetch","sheets":[{"id":"ID_SHEET","name":"NAMA_SHEET"}]}
+
+Jika tidak perlu data (pertanyaan umum, salam, dll): balas HANYA JSON:
+{"action":"skip"}`;
+
+  const msgs = [...chatHistory.slice(-4), { role: 'user', content: userMsg }];
+  const text = await callAI(system, msgs, 300);
+  try {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{')) return JSON.parse(trimmed);
+  } catch(e) {}
+  return { action: 'skip' };
+}
+
+async function analyzeWithData(userMsg, dataContext, chatHistory) {
+  const system = `Kamu asisten data analyst. Jawab pertanyaan user berdasarkan data Google Sheets berikut dalam bahasa Indonesia. Berikan analisis yang berguna, ringkas, dan akurat. Jika ada angka, hitung dengan benar.
+
+DATA:
+${dataContext}`;
+  const msgs = [...chatHistory.slice(-4), { role: 'user', content: userMsg }];
+  return await callAI(system, msgs, 800);
+}
+
+async function answerGeneral(userMsg, chatHistory) {
+  const system = `Kamu asisten Google Sheets yang helpful. Jawab dalam bahasa Indonesia.`;
+  const msgs = [...chatHistory.slice(-4), { role: 'user', content: userMsg }];
+  return await callAI(system, msgs, 500);
+}
+
+// ── Badge ──────────────────────────────────────────────────────────────────
+function Badge({ color = '#00e5a0', children }) {
+  return <span style={{ background: color+'18', color, border: `1px solid ${color}44`, fontSize: 11, padding: '2px 8px', borderRadius: 4, fontWeight: 500 }}>{children}</span>;
+}
+
+// ── Login ──────────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin, loading }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="fade-in" style={{ textAlign: 'center' }}>
+        <div style={{ fontFamily: 'Syne', fontSize: 40, fontWeight: 800, letterSpacing: '-0.04em', marginBottom: 8 }}>
+          <span style={{ color: 'var(--accent)' }}>Sheets</span> AI
+        </div>
+        <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 32 }}>Login dengan akun Google untuk mulai</p>
+        <button onClick={onLogin} style={{ background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 8, padding: '13px 32px', fontFamily: 'Syne', fontWeight: 700, fontSize: 15, display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          {loading ? <span className="spinner" style={{ borderTopColor: '#000' }} /> : null}
+          Login dengan Google
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Chat Message ───────────────────────────────────────────────────────────
+function ChatMessage({ msg }) {
+  const isUser = msg.role === 'user';
+  return (
+    <div className="chat-bubble" style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 16, gap: 10, alignItems: 'flex-start' }}>
+      {!isUser && (
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--accent)22', border: '1px solid var(--accent)44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, marginTop: 2 }}>✦</div>
+      )}
+      <div style={{ maxWidth: '80%', padding: '10px 14px', background: isUser ? 'var(--accent)' : 'var(--surface)', color: isUser ? '#000' : 'var(--text)', borderRadius: isUser ? '12px 12px 4px 12px' : '12px 12px 12px 4px', border: isUser ? 'none' : '1px solid var(--border)', fontSize: 13, lineHeight: 1.7 }}>
+        {msg.type === 'typing' && <span><span className="typing-dot"/><span className="typing-dot"/><span className="typing-dot"/></span>}
+        {msg.type === 'fetching' && <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8 }}><span className="spinner"/>{msg.text}</span>}
+        {msg.type === 'text' && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>}
+      </div>
+      {isUser && (
+        <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0, color: 'var(--muted)', marginTop: 2 }}>U</div>
+      )}
+    </div>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
+function MainApp({ token, onLogout }) {
+  const [folderInput, setFolderInput] = useState('');
+  const [sheets, setSheets] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [activeTab, setActiveTab] = useState('chat');
+
+  // Data tab
+  const [selected, setSelected] = useState(null);
+  const [tabs, setTabs] = useState([]);
+  const [tableData, setTableData] = useState([]);
+  const [loadingData, setLoadingData] = useState(false);
+  const [inputRow, setInputRow] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+
+  // Chat
+  const [chatMsgs, setChatMsgs] = useState([
+    { role: 'assistant', text: 'Halo! Scan folder Drive dulu, lalu tanya apa saja tentang data kamu. Saya akan otomatis ambil data dari sheet yang relevan! 😊', type: 'text' }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState([]);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMsgs]);
+
+  const scan = async () => {
+    const folderId = extractFolderId(folderInput);
+    if (!folderId) return setScanError('Format link tidak valid.');
+    setScanError(''); setScanning(true); setSheets([]); setSelected(null);
+    try {
+      const files = await listSheetsInFolder(folderId, token);
+      setSheets(files);
+      if (!files.length) setScanError('Tidak ada Google Sheets di folder ini.');
+      else {
+        const names = files.map(f => `• ${f.name}`).join('\n');
+        setChatMsgs(prev => [...prev, { role: 'assistant', type: 'text', text: `✅ ${files.length} sheet ditemukan:\n${names}\n\nSekarang tanya apa saja!` }]);
+        setChatHistory(prev => [...prev, { role: 'assistant', content: `Sheet tersedia: ${files.map(f=>f.name).join(', ')}` }]);
+      }
+    } catch(e) { setScanError('Gagal memuat. Cek akses folder.'); }
+    setScanning(false);
+  };
+
+  const sendChat = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const userMsg = chatInput.trim();
+    setChatInput(''); setChatLoading(true);
+    setChatMsgs(prev => [...prev, { role: 'user', text: userMsg, type: 'text' }, { role: 'assistant', type: 'typing' }]);
+    const newHistory = [...chatHistory, { role: 'user', content: userMsg }];
+
+    try {
+      if (sheets.length === 0) {
+        const answer = await answerGeneral(userMsg, newHistory);
+        setChatMsgs(prev => [...prev.slice(0,-1), { role: 'assistant', type: 'text', text: answer }]);
+        setChatHistory([...newHistory, { role: 'assistant', content: answer }]);
+        setChatLoading(false); return;
+      }
+
+      // Step 1: AI putuskan sheet mana yang perlu diambil
+      const decision = await decideSheets(userMsg, sheets, newHistory);
+
+      if (decision.action === 'skip') {
+        const answer = await answerGeneral(userMsg, newHistory);
+        setChatMsgs(prev => [...prev.slice(0,-1), { role: 'assistant', type: 'text', text: answer }]);
+        setChatHistory([...newHistory, { role: 'assistant', content: answer }]);
+      } else {
+        const toFetch = decision.sheets || [];
+        const names = toFetch.map(s => s.name).join(', ');
+        setChatMsgs(prev => [...prev.slice(0,-1), { role: 'assistant', type: 'fetching', text: `Mengambil data: ${names}...` }]);
+
+        // Step 2: Fetch data dari sheets yang dipilih AI
+        let dataContext = '';
+        for (const s of toFetch) {
+          try {
+            const match = sheets.find(sh => sh.id === s.id) || sheets.find(sh => sh.name.toLowerCase().includes(s.name.toLowerCase()));
+            if (!match) continue;
+            const tabsList = await getSheetTabs(match.id, token);
+            const tabName = tabsList[0]?.title || 'Sheet1';
+            const rows = await getSheetData(match.id, tabName, token);
+            if (rows.length > 0) {
+              const headers = rows[0];
+              const dataRows = rows.slice(1, 30);
+              dataContext += `\n=== ${match.name} (Tab: ${tabName}) — ${rows.length-1} baris ===\n`;
+              dataContext += `Kolom: ${headers.join(' | ')}\n`;
+              dataRows.forEach((row, i) => {
+                const pairs = headers.map((h, ci) => `${h}: ${row[ci]||''}`).join(', ');
+                dataContext += `${i+1}. ${pairs}\n`;
+              });
+            }
+          } catch(e) { dataContext += `\n[Gagal ambil ${s.name}: ${e.message}]\n`; }
+        }
+
+        // Step 3: AI analisis dan jawab (potong kalau terlalu panjang)
+        if (dataContext.length > 6000) dataContext = dataContext.slice(0, 6000) + ' ...(data dipotong)';
+        const answer = await analyzeWithData(userMsg, dataContext, newHistory);
+        setChatMsgs(prev => [...prev.slice(0,-1), { role: 'assistant', type: 'text', text: answer }]);
+        setChatHistory([...newHistory, { role: 'assistant', content: answer }]);
+      }
+    } catch(e) {
+      setChatMsgs(prev => [...prev.slice(0,-1), { role: 'assistant', type: 'text', text: `❌ Error: ${e.message}` }]);
+    }
+    setChatLoading(false);
+  };
+
+  // Data tab
+  const openSheet = async (sheet) => {
+    setSelected({ sheet, tab: null }); setTabs([]); setTableData([]);
+    try {
+      const t = await getSheetTabs(sheet.id, token);
+      setTabs(t);
+      if (t.length) await loadTab(sheet, t[0]);
+    } catch(e) {}
+  };
+
+  const loadTab = async (sheet, tab) => {
+    setSelected(s => ({ ...s, tab })); setLoadingData(true); setTableData([]);
+    try {
+      const rows = await getSheetData(sheet.id, tab.title, token);
+      setTableData(rows);
+      if (rows.length > 0) setInputRow(Array(rows[0].length).fill(''));
+    } catch(e) { setTableData([]); }
+    setLoadingData(false);
+  };
+
+  const handleAppend = async () => {
+    if (!selected?.sheet || !selected?.tab) return;
+    setSaving(true); setSaveMsg('');
+    try {
+      await appendRow(selected.sheet.id, selected.tab.title, inputRow, token);
+      setSaveMsg('✓ Berhasil disimpan!');
+      setInputRow(Array(inputRow.length).fill(''));
+      await loadTab(selected.sheet, selected.tab);
+    } catch(e) { setSaveMsg('✗ Gagal menyimpan.'); }
+    setSaving(false);
+    setTimeout(() => setSaveMsg(''), 3000);
+  };
+
+  const headers = tableData[0] || [];
+  const rows = tableData.slice(1);
+
+  const suggestions = ['Ringkas semua data yang ada', 'Berapa total baris di tiap sheet?', 'Tampilkan data terbaru', 'Analisis isi sheet pertama'];
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Topbar */}
+      <div style={{ borderBottom: '1px solid var(--border)', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ fontFamily: 'Syne', fontWeight: 800, fontSize: 17, letterSpacing: '-0.03em' }}>
+            <span style={{ color: 'var(--accent)' }}>Sheets</span> AI
+          </div>
+          <div style={{ display: 'flex', gap: 2 }}>
+            {[['chat','✦ Chat AI'],['data','⊞ Data'],['input','+ Input']].map(([t,label]) => (
+              <button key={t} onClick={() => setActiveTab(t)} style={{ padding: '5px 14px', borderRadius: 6, border: 'none', fontSize: 12, background: activeTab===t ? 'var(--surface2)' : 'transparent', color: activeTab===t ? 'var(--accent)' : 'var(--muted)', fontFamily: 'var(--font-mono)', borderBottom: activeTab===t ? '1px solid var(--accent)' : '1px solid transparent' }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {sheets.length > 0 && <Badge color="#00e5a0">{sheets.length} sheets</Badge>}
+          <button onClick={onLogout} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', fontSize: 12, padding: '5px 12px', borderRadius: 6 }}>Logout</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <div style={{ width: 256, borderRight: '1px solid var(--border)', padding: '1rem', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0, overflowY: 'auto' }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Folder Drive</div>
+          <input value={folderInput} onChange={e => setFolderInput(e.target.value)} placeholder="Paste link folder..." onKeyDown={e => e.key==='Enter' && scan()} style={{ marginBottom: 4 }} />
+          <button onClick={scan} disabled={scanning || !folderInput.trim()} style={{ width: '100%', padding: '9px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 6, fontFamily: 'Syne', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: scanning || !folderInput.trim() ? 0.5 : 1 }}>
+            {scanning ? <><span className="spinner" style={{ borderTopColor:'#000' }}/> Scanning...</> : 'Scan Sheets'}
+          </button>
+          {scanError && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{scanError}</div>}
+          {sheets.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 8 }}>{sheets.length} Sheets</div>
+              {sheets.map(s => (
+                <button key={s.id} onClick={() => { setActiveTab('data'); openSheet(s); }} style={{ background: selected?.sheet?.id===s.id ? 'var(--surface2)' : 'transparent', border: `1px solid ${selected?.sheet?.id===s.id ? 'var(--accent)44' : 'transparent'}`, color: selected?.sheet?.id===s.id ? 'var(--text)' : 'var(--muted)', borderRadius: 6, padding: '7px 10px', textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ color: 'var(--accent)', fontSize: 14, flexShrink: 0 }}>⊞</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* CHAT */}
+          {activeTab === 'chat' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.5rem 0.5rem' }}>
+                {chatMsgs.map((msg, i) => <ChatMessage key={i} msg={msg} />)}
+                <div ref={chatEndRef} />
+              </div>
+              {sheets.length > 0 && chatMsgs.length <= 3 && (
+                <div style={{ padding: '0 1.5rem 0.75rem', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {suggestions.map((s, i) => (
+                    <button key={i} onClick={() => setChatInput(s)} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--muted)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{s}</button>
+                  ))}
+                </div>
+              )}
+              <div style={{ padding: '0.75rem 1.5rem 1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key==='Enter' && !e.shiftKey && sendChat()} placeholder={sheets.length===0 ? "Scan folder dulu..." : "Tanya apa saja tentang data kamu..."} disabled={chatLoading} style={{ flex: 1 }} />
+                <button onClick={sendChat} disabled={chatLoading || !chatInput.trim()} style={{ padding: '10px 20px', background: chatInput.trim() ? 'var(--accent)' : 'var(--surface)', color: chatInput.trim() ? '#000' : 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'Syne', fontWeight: 700, fontSize: 13, flexShrink: 0, transition: 'all 0.15s' }}>Kirim</button>
+              </div>
+            </div>
+          )}
+
+          {/* DATA */}
+          {activeTab === 'data' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {!selected ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: 'var(--muted)' }}>
+                  <div style={{ fontSize: 40, opacity: 0.15 }}>⊞</div>
+                  <div style={{ fontSize: 13 }}>Pilih sheet dari sidebar</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                    <div>
+                      <div style={{ fontFamily: 'Syne', fontWeight: 700, fontSize: 15 }}>{selected.sheet.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} baris</div>
+                    </div>
+                    <a href={selected.sheet.webViewLink} target="_blank" style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', color: 'var(--muted)', fontSize: 12, textDecoration: 'none' }}>↗ Buka di Drive</a>
+                  </div>
+                  {tabs.length > 1 && (
+                    <div style={{ padding: '6px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 4, overflowX: 'auto', flexShrink: 0 }}>
+                      {tabs.map(tab => (
+                        <button key={tab.sheetId} onClick={() => loadTab(selected.sheet, tab)} style={{ padding: '3px 10px', borderRadius: 4, border: 'none', fontSize: 12, background: selected.tab?.sheetId===tab.sheetId ? 'var(--surface2)' : 'transparent', color: selected.tab?.sheetId===tab.sheetId ? 'var(--accent)' : 'var(--muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', borderBottom: selected.tab?.sheetId===tab.sheetId ? '1px solid var(--accent)' : '1px solid transparent' }}>{tab.title}</button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ flex: 1, overflow: 'auto' }}>
+                    {loadingData ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, gap: 10, color: 'var(--muted)' }}><span className="spinner"/> Memuat...</div>
+                    ) : tableData.length === 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--muted)', fontSize: 13 }}>Sheet kosong.</div>
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface)', position: 'sticky', top: 0 }}>
+                            <th style={{ padding: '9px 10px', textAlign: 'left', color: 'var(--muted)', fontSize: 11, borderBottom: '1px solid var(--border)', width: 36 }}>#</th>
+                            {headers.map((h,i) => <th key={i} style={{ padding: '9px 10px', textAlign: 'left', color: 'var(--accent)', fontSize: 11, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row,ri) => (
+                            <tr key={ri} style={{ borderBottom: '1px solid var(--border)' }} onMouseEnter={e=>e.currentTarget.style.background='var(--surface)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                              <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 11 }}>{ri+1}</td>
+                              {headers.map((_,ci) => <td key={ci} style={{ padding: '8px 10px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row[ci]||''}</td>)}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* INPUT */}
+          {activeTab === 'input' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+              {!selected ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, flexDirection: 'column', gap: 10, color: 'var(--muted)' }}>
+                  <div style={{ fontSize: 13 }}>Pilih sheet dari sidebar, buka tab Data dulu</div>
+                </div>
+              ) : (
+                <div style={{ maxWidth: 560 }}>
+                  <div style={{ fontFamily: 'Syne', fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Tambah baris baru</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>→ {selected.sheet.name}{selected.tab ? ` / ${selected.tab.title}` : ''}</div>
+                  {headers.length === 0 ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Buka tab Data dulu untuk load kolom sheet.</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        {headers.map((h,i) => (
+                          <div key={i}>
+                            <div style={{ fontSize: 11, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{h}</div>
+                            <input value={inputRow[i]||''} onChange={e => setInputRow(r => { const nr=[...r]; nr[i]=e.target.value; return nr; })} placeholder={`Isi ${h}...`} />
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20 }}>
+                        <button onClick={handleAppend} disabled={saving} style={{ padding: '10px 24px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 7, fontFamily: 'Syne', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, opacity: saving ? 0.6 : 1 }}>
+                          {saving ? <><span className="spinner" style={{ borderTopColor:'#000' }}/> Menyimpan...</> : 'Simpan ke Sheet'}
+                        </button>
+                        <button onClick={() => setInputRow(Array(headers.length).fill(''))} style={{ padding: '10px 16px', background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: 7, fontSize: 13, fontFamily: 'var(--font-mono)' }}>Reset</button>
+                        {saveMsg && <span style={{ fontSize: 13, color: saveMsg.startsWith('✓') ? 'var(--accent)' : 'var(--danger)' }}>{saveMsg}</span>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const { token, login, logout, loading } = useOAuth(CLIENT_ID);
+  if (!token) return <LoginScreen onLogin={login} loading={loading} />;
+  return <MainApp token={token} onLogout={logout} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>2
