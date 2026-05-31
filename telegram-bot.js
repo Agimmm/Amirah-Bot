@@ -469,19 +469,36 @@ bot.on('message', async (msg) => {
     let targets = [];
     const msgLower = userMsg.toLowerCase();
     
+    // Score setiap tab berdasarkan berapa banyak kata yang cocok
+    let bestScore = 0;
+    let bestTarget = null;
+
     for (const sheet of session.sheets) {
       for (const tab of sheet.tabs) {
         const tabLower = tab.toLowerCase();
-        // Cek apakah nama tab ada di pesan user
-        if (msgLower.includes(tabLower) || tabLower.split(' ').some(w => w.length > 3 && msgLower.includes(w))) {
-          targets.push({ id: sheet.id, name: sheet.name, tab });
-          break;
+        let score = 0;
+        
+        // Exact match dapat score tertinggi
+        if (msgLower.includes(tabLower)) {
+          score = tabLower.length * 2;
+        } else {
+          // Hitung berapa kata dari tab yang ada di pesan
+          const tabWords = tabLower.split(/[\s_]+/).filter(w => w.length > 2);
+          const matchedWords = tabWords.filter(w => msgLower.includes(w));
+          score = matchedWords.length * 3;
+        }
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestTarget = { id: sheet.id, name: sheet.name, tab };
         }
       }
     }
 
-    // Kalau tidak ada yang cocok, ambil tab pertama dari sheet pertama
-    if (targets.length === 0) {
+    // Pakai yang paling cocok, atau default tab pertama sheet pertama
+    if (bestTarget && bestScore > 0) {
+      targets.push(bestTarget);
+    } else {
       const sheet = session.sheets[0];
       targets.push({ id: sheet.id, name: sheet.name, tab: sheet.tabs[0] });
     }
