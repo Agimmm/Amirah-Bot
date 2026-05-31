@@ -456,12 +456,53 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, answer);
     }
 
+    // Deteksi perintah INPUT DATA langsung
+    const inputKeywords = ['input ke','tambah data','tambahkan data','input data','masukkan data','catat ke','simpan ke'];
+    const isInputCmd = inputKeywords.some(k => userMsg.toLowerCase().includes(k));
+    
+    if (isInputCmd && session.sheets.length > 0) {
+      // Cari tab tujuan dari pesan
+      let targetSheet = null;
+      let targetTab = null;
+      const msgLower2 = userMsg.toLowerCase();
+      
+      for (const sheet of session.sheets) {
+        for (const tab of sheet.tabs) {
+          if (msgLower2.includes(tab.toLowerCase())) {
+            targetSheet = sheet;
+            targetTab = tab;
+            break;
+          }
+        }
+        if (targetSheet) break;
+      }
+      
+      if (targetSheet && targetTab) {
+        // Ambil nilai setelah tanda ":"
+        const colonIdx = userMsg.indexOf(':');
+        if (colonIdx !== -1) {
+          const rawValues = userMsg.slice(colonIdx + 1).trim();
+          const values = rawValues.split(',').map(v => v.trim());
+          // Ganti "tanggal hari ini" dengan tanggal sebenarnya
+          const today = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          const cleanValues = values.map(v => v.toLowerCase().includes('hari ini') ? today : v);
+          
+          try {
+            await appendToSheet(targetSheet.id, targetTab, cleanValues);
+            return bot.sendMessage(chatId, `✅ Data berhasil ditambahkan ke tab ${targetTab}!`);
+          } catch(e) {
+            return bot.sendMessage(chatId, `❌ Gagal input: ${e.message}`);
+          }
+        }
+      }
+    }
+
     // Cek apakah pertanyaan butuh data dari sheets
     const dataKeywords = ['data','tampil','berapa','siapa','total','jumlah','cari','list','rekap','report','sales','order','pelanggan','terbanyak','terbaru','tertinggi','terendah','rata','penjualan','tabel','sheet','tab','am','ar','nas','hsi','wms','target','realisasi'];
     const needsData = dataKeywords.some(k => userMsg.toLowerCase().includes(k));
 
     if (!needsData || session.sheets.length === 0) {
-      const answer = await callAI('Kamu asisten data analyst. Jawab dalam bahasa Indonesia singkat dan langsung.', [{ role: 'user', content: userMsg }]);
+      const answer = await callAI('Jawab dalam bahasa Indonesia, singkat dan langsung ke poin. Maksimal 2 kalimat.', [{ role: 'user', content: userMsg }]);
       return bot.sendMessage(chatId, answer);
     }
 
@@ -565,7 +606,6 @@ bot.on('message', async (msg) => {
 
     // ── AKSI: tulis langsung ──────────────────────────────────────────────
     if (decision.action === 'write') {
-      bot.sendMessage(chatId, '✏️ Menyimpan data...');
       const destTarget = decision.destination;
       const destSheetObj = session.sheets.find(s => s.id === destTarget?.id)
         || session.sheets.find(s => s.name.toLowerCase().includes((destTarget?.name||'').toLowerCase()));
