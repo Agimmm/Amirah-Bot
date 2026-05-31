@@ -456,22 +456,37 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, answer);
     }
 
-    // AI putuskan jenis aksi
-    const decision = await decideAction(userMsg, session.sheets);
+    // Cek apakah pertanyaan butuh data dari sheets
+    const dataKeywords = ['data','tampil','berapa','siapa','total','jumlah','cari','list','rekap','report','sales','order','pelanggan','terbanyak','terbaru','tertinggi','terendah','rata','penjualan','tabel','sheet','tab','am','ar','nas','hsi','wms','target','realisasi'];
+    const needsData = dataKeywords.some(k => userMsg.toLowerCase().includes(k));
 
-    if (decision.action === 'skip') {
-      // Cek apakah pertanyaan butuh data
-      const dataKeywords = ['data','tampil','berapa','siapa','total','jumlah','cari','list','rekap','report','sales','order','pelanggan','terbanyak','terbaru','tertinggi','terendah','rata','penjualan','tabel','sheet','tab'];
-      const needsData = dataKeywords.some(k => userMsg.toLowerCase().includes(k));
-      if (needsData && session.sheets.length > 0) {
-        // Paksa ambil dari semua sheet
-        decision.action = 'fetch';
-        decision.targets = session.sheets.map(s => ({ id: s.id, name: s.name, tab: s.tabs[0] }));
-      } else {
-        const answer = await callAI('Kamu asisten data analyst. Jawab dalam bahasa Indonesia.', [{ role: 'user', content: userMsg }]);
-        return bot.sendMessage(chatId, answer);
+    if (!needsData || session.sheets.length === 0) {
+      const answer = await callAI('Kamu asisten data analyst. Jawab dalam bahasa Indonesia singkat dan langsung.', [{ role: 'user', content: userMsg }]);
+      return bot.sendMessage(chatId, answer);
+    }
+
+    // Cari sheet & tab yang paling relevan berdasarkan keyword
+    let targets = [];
+    const msgLower = userMsg.toLowerCase();
+    
+    for (const sheet of session.sheets) {
+      for (const tab of sheet.tabs) {
+        const tabLower = tab.toLowerCase();
+        // Cek apakah nama tab ada di pesan user
+        if (msgLower.includes(tabLower) || tabLower.split(' ').some(w => w.length > 3 && msgLower.includes(w))) {
+          targets.push({ id: sheet.id, name: sheet.name, tab });
+          break;
+        }
       }
     }
+
+    // Kalau tidak ada yang cocok, ambil tab pertama dari sheet pertama
+    if (targets.length === 0) {
+      const sheet = session.sheets[0];
+      targets.push({ id: sheet.id, name: sheet.name, tab: sheet.tabs[0] });
+    }
+
+    const decision = { action: 'fetch', targets };
 
     bot.sendChatAction(chatId, 'typing');
 
