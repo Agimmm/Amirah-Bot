@@ -287,11 +287,19 @@ async function callAI(system, messages, maxTokens = 800) {
   
   if (data.error) throw new Error('[CEREBRAS] Error: ' + (data.error.message || JSON.stringify(data.error)));
   
-  const text = data.choices?.[0]?.message?.content || '';
-  console.log('[CEREBRAS] Text length:', text.length);
+  // zai-glm-4.7 kadang taruh konten di message.content atau message.reasoning
+  const choice = data.choices?.[0];
+  const text = choice?.message?.content 
+    || choice?.message?.reasoning
+    || choice?.text
+    || '';
   
-  if (!text) throw new Error('[CEREBRAS] Respons kosong. Full: ' + JSON.stringify(data).slice(0, 200));
-  return text;
+  // Kalau ada reasoning tapi content kosong, ambil dari reasoning
+  const reasoning = choice?.message?.reasoning || '';
+  const finalText = text || reasoning;
+  
+  if (!finalText) throw new Error('Respons kosong dari AI.');
+  return finalText;
 }
 
 // AI pilih: sheet mana + tab mana yang relevan
