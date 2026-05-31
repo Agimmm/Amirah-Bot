@@ -257,7 +257,7 @@ Pastikan rows berisi array of arrays. Baris pertama adalah header (jika perlu), 
 }
 
 // ── Cerebras AI ────────────────────────────────────────────────────────────────
-async function callAI(system, messages, maxTokens = 800) {
+async function callAI(system, messages, maxTokens = 500) {
   const fetch = (await import('node-fetch')).default;
   const allMessages = [];
   if (system) allMessages.push({ role: 'system', content: system });
@@ -270,10 +270,11 @@ async function callAI(system, messages, maxTokens = 800) {
       'Authorization': `Bearer ${CEREBRAS_API_KEY}`
     },
     body: JSON.stringify({
-      model: 'zai-glm-4.7',
+      model: 'gpt-oss-120b',
       messages: allMessages,
       max_tokens: maxTokens,
-      temperature: 0.7
+      temperature: 0.7,
+      reasoning_effort: 'low'
     })
   });
   const status = res.status;
@@ -287,19 +288,9 @@ async function callAI(system, messages, maxTokens = 800) {
   
   if (data.error) throw new Error('[CEREBRAS] Error: ' + (data.error.message || JSON.stringify(data.error)));
   
-  // zai-glm-4.7 kadang taruh konten di message.content atau message.reasoning
-  const choice = data.choices?.[0];
-  const text = choice?.message?.content 
-    || choice?.message?.reasoning
-    || choice?.text
-    || '';
-  
-  // Kalau ada reasoning tapi content kosong, ambil dari reasoning
-  const reasoning = choice?.message?.reasoning || '';
-  const finalText = text || reasoning;
-  
-  if (!finalText) throw new Error('Respons kosong dari AI.');
-  return finalText;
+  const text = data.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('Respons kosong dari AI.');
+  return text;
 }
 
 // AI pilih: sheet mana + tab mana yang relevan
