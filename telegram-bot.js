@@ -270,7 +270,7 @@ async function callAI(system, messages, maxTokens = 800) {
       'Authorization': `Bearer ${CEREBRAS_API_KEY}`
     },
     body: JSON.stringify({
-      model: 'llama3.1-8b',
+      model: 'zai-glm-4.7',
       messages: allMessages,
       max_tokens: maxTokens,
       temperature: 0.7
