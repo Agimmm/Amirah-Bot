@@ -257,7 +257,7 @@ Pastikan rows berisi array of arrays. Baris pertama adalah header (jika perlu), 
 }
 
 // ── Cerebras AI ────────────────────────────────────────────────────────────────
-async function callAI(system, messages, maxTokens = 500) {
+async function callAI(system, messages, maxTokens = 300) {
   const fetch = (await import('node-fetch')).default;
   const allMessages = [];
   if (system) allMessages.push({ role: 'system', content: system });
@@ -456,6 +456,91 @@ bot.on('message', async (msg) => {
       return bot.sendMessage(chatId, answer);
     }
 
+    // Deteksi perintah OPERASI ANTAR TAB (baca + hitung + tulis)
+    const computeKeywords = ['dan tulis','dan tambahkan','lalu tulis','lalu tambahkan','kemudian tulis','kemudian tambahkan','dan simpan ke','dan masukkan ke'];
+    const isComputeCmd = computeKeywords.some(k => userMsg.toLowerCase().includes(k));
+
+    if (isComputeCmd && session.sheets.length > 0) {
+      bot.sendMessage(chatId, '⚙️ Memproses data antar tab...');
+      
+      // Cari semua tab yang disebut di pesan
+      const msgLower3 = userMsg.toLowerCase();
+      let sourceTabs = [];
+      let destTab = null;
+      let destSheet = null;
+
+      // Kata kunci pemisah sumber vs tujuan
+      const destKeywords = ['ke tab','ke rekap','ke sheet','tulis ke','tambahkan ke','simpan ke'];
+      const destIdx = destKeywords.map(k => msgLower3.indexOf(k)).filter(i => i !== -1);
+      const splitIdx = destIdx.length > 0 ? Math.min(...destIdx) : -1;
+
+      const sourcePart = splitIdx > -1 ? msgLower3.slice(0, splitIdx) : msgLower3;
+      const destPart = splitIdx > -1 ? msgLower3.slice(splitIdx) : '';
+
+      for (const sheet of session.sheets) {
+        for (const tab of sheet.tabs) {
+          const tabL = tab.toLowerCase();
+          if (sourcePart.includes(tabL)) {
+            sourceTabs.push({ sheet, tab });
+          }
+          if (destPart.includes(tabL) && !destTab) {
+            destTab = tab;
+            destSheet = sheet;
+          }
+        }
+      }
+
+      if (sourceTabs.length === 0 || !destSheet) {
+        return bot.sendMessage(chatId, '❌ Tidak bisa mendeteksi tab sumber atau tujuan. Sebutkan nama tab dengan jelas.');
+      }
+
+      // Ambil data dari source tabs
+      let dataContext = '';
+      for (const { sheet, tab } of sourceTabs) {
+        const rows = await getTabData(sheet.id, tab);
+        if (rows.length > 0) {
+          const headers = rows[0];
+          const dataRows = rows.slice(1, 50);
+          dataContext += `\n=== ${sheet.name} → Tab: ${tab} (${rows.length-1} baris) ===\n`;
+          dataContext += `Kolom: ${headers.join(' | ')}\n`;
+          dataRows.forEach((row, i) => {
+            dataContext += `${i+1}. ${headers.map((h,ci) => h+': '+(row[ci]||'')).join(', ')}\n`;
+            if (dataContext.length > 6000) return;
+          });
+        }
+      }
+
+      // Minta AI hitung dan tentukan data yang ditulis
+      const computeSystem = `Kamu data analyst. Hitung sesuai permintaan user dari data ini, lalu balas HANYA JSON:
+{"result":"penjelasan singkat hasil","rows":[["header1","header2"],["nilai1","nilai2"]]}
+Jangan ada teks lain selain JSON.
+
+DATA:
+${dataContext}`;
+
+      const aiResp = await callAI(computeSystem, [{ role: 'user', content: userMsg }], 300);
+      
+      try {
+        const jsonMatch = aiResp.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('Format tidak valid');
+        const parsed = JSON.parse(jsonMatch[0]);
+        
+        if (parsed.rows && parsed.rows.length > 0) {
+          await writeRangeToTab(destSheet.id, destTab, parsed.rows);
+          return bot.sendMessage(chatId, `✅ Selesai! ${parsed.result}\n\nData ditulis ke: ${destSheet.name} → Tab: ${destTab}`);
+        }
+      } catch(e) {
+        // Kalau JSON gagal, coba parse angka dari respons AI dan tulis langsung
+        const numbers = aiResp.match(/\d+/g);
+        if (numbers && numbers.length > 0) {
+          const today = new Date().toLocaleDateString('id-ID');
+          await writeRangeToTab(destSheet.id, destTab, [[today, 'Total dari '+sourceTabs.map(s=>s.tab).join('+'), numbers[0]]]);
+          return bot.sendMessage(chatId, `✅ Total ${numbers[0]} berhasil ditulis ke tab ${destTab}!`);
+        }
+        return bot.sendMessage(chatId, `❌ Gagal proses: ${e.message}`);
+      }
+    }
+
     // Deteksi perintah INPUT DATA langsung
     const inputKeywords = ['input ke','tambah data','tambahkan data','input data','masukkan data','catat ke','simpan ke'];
     const isInputCmd = inputKeywords.some(k => userMsg.toLowerCase().includes(k));
@@ -573,7 +658,7 @@ bot.on('message', async (msg) => {
         }
       }
       if (!dataContext) return bot.sendMessage(chatId, '⚠️ Tidak bisa ambil data dari tab yang diminta.');
-      const system = `Kamu asisten data analyst. Jawab berdasarkan data berikut dalam bahasa Indonesia. Jawab spesifik dan akurat sesuai data yang diberikan.\n\nDATA:\n${dataContext}`;
+      const system = `Jawab 1-2 kalimat bahasa Indonesia. Langsung ke fakta/angka.\n\nDATA:\n${dataContext}`;
       const answer = await callAI(system, [{ role: 'user', content: userMsg }], 800);
       return bot.sendMessage(chatId, answer);
     }
