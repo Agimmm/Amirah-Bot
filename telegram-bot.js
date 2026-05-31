@@ -276,10 +276,21 @@ async function callAI(system, messages, maxTokens = 800) {
       temperature: 0.7
     })
   });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  const status = res.status;
+  const rawText = await res.text();
+  console.log('[CEREBRAS] Status:', status);
+  console.log('[CEREBRAS] Response:', rawText.slice(0, 500));
+  
+  let data;
+  try { data = JSON.parse(rawText); } 
+  catch(e) { throw new Error('[CEREBRAS] Bukan JSON: ' + rawText.slice(0, 100)); }
+  
+  if (data.error) throw new Error('[CEREBRAS] Error: ' + (data.error.message || JSON.stringify(data.error)));
+  
   const text = data.choices?.[0]?.message?.content || '';
-  if (!text) throw new Error('AI tidak memberikan respons. Coba lagi.');
+  console.log('[CEREBRAS] Text length:', text.length);
+  
+  if (!text) throw new Error('[CEREBRAS] Respons kosong. Full: ' + JSON.stringify(data).slice(0, 200));
   return text;
 }
 
