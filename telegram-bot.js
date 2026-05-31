@@ -267,12 +267,10 @@ async function callAI(system, messages, maxTokens = 800) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${CEREBRAS_API_KEY}`,
-      'HTTP-Referer': 'https://sheets-ai-bot.app',
-      'X-Title': 'Sheets AI Bot'
+      'Authorization': `Bearer ${CEREBRAS_API_KEY}`
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b',
+      model: 'llama3.1-8b',
       messages: allMessages,
       max_tokens: maxTokens,
       temperature: 0.7
