@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title desc">
+<title id="title">Amirah — portfolio overview</title><desc id="desc">Kelola informasi spreadsheet melalui percakapan. Diagram alur produk, bukan screenshot aplikasi.</desc>
+<rect width="1280" height="420" rx="24" fill="#101a2b"/>
+<path d="M920 0h360v420H780" fill="#17263e"/>
+<circle cx="1130" cy="78" r="175" fill="none" stroke="#66e3c4" stroke-opacity=".14" stroke-width="40"/>
+<rect x="54" y="48" width="44" height="5" rx="2.5" fill="#66e3c4"/>
+<text x="54" y="88" fill="#66e3c4" font-family="Arial,sans-serif" font-size="16" letter-spacing="2">AI ASSISTANT / TELEGRAM + GOOGLE SHEETS</text>
+<text x="50" y="175" fill="#ffffff" font-family="Arial,sans-serif" font-size="76" font-weight="700">Amirah</text>
+<text x="54" y="225" fill="#cbd7e7" font-family="Arial,sans-serif" font-size="25">Kelola informasi spreadsheet melalui percakapan.</text>
+<rect x="54" y="280" width="376" height="76" rx="12" fill="#1b2b43" stroke="#334660"/>
+<text x="74" y="326" fill="#66e3c4" font-family="Arial,sans-serif" font-size="16" font-weight="700">01</text>
+<text x="110" y="326" fill="#f3f6fb" font-family="Arial,sans-serif" font-size="19">Tanya lewat Telegram</text>
+<rect x="452" y="280" width="376" height="76" rx="12" fill="#1b2b43" stroke="#334660"/>
+<text x="472" y="326" fill="#66e3c4" font-family="Arial,sans-serif" font-size="16" font-weight="700">02</text>
+<text x="508" y="326" fill="#f3f6fb" font-family="Arial,sans-serif" font-size="19">Temukan data di Sheets</text>
+<rect x="850" y="280" width="376" height="76" rx="12" fill="#1b2b43" stroke="#334660"/>
+<text x="870" y="326" fill="#66e3c4" font-family="Arial,sans-serif" font-size="16" font-weight="700">03</text>
+<text x="906" y="326" fill="#f3f6fb" font-family="Arial,sans-serif" font-size="19">Terima hasil / simpan data</text>
+<text x="54" y="392" fill="#a0b0c6" font-family="Arial,sans-serif" font-size="13" letter-spacing="1">AGIMMM / SELECTED PROJECTS</text></svg>
